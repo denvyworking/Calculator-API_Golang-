@@ -90,6 +90,20 @@ func patchCalculations(c echo.Context) error {
 	return c.JSON(http.StatusBadRequest, map[string]string{"error": "Calculation not found"})
 }
 
+func deleteCalculations(c echo.Context) error {
+	id := c.Param("id")
+	// пока не подключила Postgres делаю так
+	for i, calculation := range calculations {
+		if calculation.ID == id {
+			calculations = append(calculations[:i], calculations[i+1:]...)
+			// ответ без тела как в других методах
+			return c.NoContent(http.StatusNoContent)
+		}
+	}
+	return c.JSON(http.StatusBadRequest, map[string]string{"error": "Calculation not found"})
+
+}
+
 func main() {
 	e := echo.New()
 
@@ -101,6 +115,7 @@ func main() {
 	e.GET("/calculations", getCalculations)
 	e.POST("/calculations", postCalculations)
 	e.PATCH("/calculations", patchCalculations)
+	e.DELETE("/calculations", deleteCalculations)
 
 	e.Start("localhost:8080")
 }
