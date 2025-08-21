@@ -16,7 +16,7 @@ import (
 var db *gorm.DB
 
 func initDB() {
-	dsn := "host=localhost user=postgres password=yourpassword dname=postgres port=5432 sslmode=disable"
+	dsn := "host=localhost user=postgres password=yourpassword dbname=postgres port=5432 sslmode=disable"
 	var err error
 	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -37,7 +37,7 @@ type CalculationRequest struct {
 	Expression string `json:"expression"`
 }
 
-var calculations = []Calculation{}
+//var calculations = []Calculation{}
 
 func CalculateExpression(expression string) (string, error) {
 	// передаем стоку с выражением в виде стоки : 52+52
@@ -56,6 +56,11 @@ func CalculateExpression(expression string) (string, error) {
 // get ручка
 
 func getCalculations(c echo.Context) error {
+	var calculations []Calculation
+
+	if err := db.Find(&calculations).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Could not get calculations"})
+	}
 	return c.JSON(http.StatusOK, calculations)
 }
 
@@ -78,7 +83,9 @@ func postCalculations(c echo.Context) error {
 		Result:     result,
 	}
 
-	calculations = append(calculations, calc)
+	if err := db.Create(&calc).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Could not add calculations"})
+	}
 
 	return c.JSON(http.StatusCreated, calc)
 }
@@ -97,31 +104,37 @@ func patchCalculations(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid expression"})
 	}
 
-	for i, calculation := range calculations {
-		if calculation.ID == id {
-			calculations[i].Expression = req.Expression
-			calculations[i].Result = result
-			return c.JSON(http.StatusOK, calculations[i])
-		}
+	var calc Calculation
+	if err := db.First(&calc, "id = ?", id).Error; err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Could not find expression"})
 	}
-	return c.JSON(http.StatusBadRequest, map[string]string{"error": "Calculation not found"})
+	calc.Expression = req.Expression
+	calc.Result = result
+
+	if err := db.Save(&calc).Error; err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Could not update calculations"})
+	}
+	return c.JSON(http.StatusOK, calc)
 }
 
 func deleteCalculations(c echo.Context) error {
 	id := c.Param("id")
-	// пока не подключила Postgres делаю так
-	for i, calculation := range calculations {
-		if calculation.ID == id {
-			calculations = append(calculations[:i], calculations[i+1:]...)
-			// ответ без тела как в других методах
-			return c.NoContent(http.StatusNoContent)
-		}
-	}
-	return c.JSON(http.StatusBadRequest, map[string]string{"error": "Calculation not found"})
 
+	result := db.Delete(&Calculation{}, "id = ?", id)
+	if result.Error != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Could not delete calculation"})
+	}
+
+	if result.RowsAffected == 0 {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "Calculation not found"})
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 func main() {
+	initDB()
+
 	e := echo.New()
 
 	e.Use(middleware.CORS())
@@ -131,8 +144,8 @@ func main() {
 	// все гет запросы и пост запросы по данным путям мы обрабатываем с помощью данных методов
 	e.GET("/calculations", getCalculations)
 	e.POST("/calculations", postCalculations)
-	e.PATCH("/calculations", patchCalculations)
-	e.DELETE("/calculations", deleteCalculations)
+	e.PATCH("/calculations/:id", patchCalculations)
+	e.DELETE("/calculations/:id", deleteCalculations)
 
 	e.Start("localhost:8080")
 }
